@@ -148,7 +148,7 @@ with st.sidebar:
     leverage_mult = st.number_input("Boost Leverage", value=3.0, step=0.5)
     risk_threshold = st.slider("Certainty Threshold", 0.1, 1.0, 0.5)
 
-if st.button("Run Honest Backtest"):
+if st.button("Run Backtest"):
     train_start_date = pd.Timestamp(backtest_start) - pd.DateOffset(years=4)
     df = fetch_data(ticker, train_start_date, backtest_end)
     
@@ -198,8 +198,6 @@ if st.button("Run Honest Backtest"):
             start_idx = len(train_df)
             total_steps = len(test_df)
             
-            # We use a fixed lookback window for HMM inference to keep it fast enough
-            # Looking back 252 days (1 year) is usually sufficient for regime detection
             lookback_window = 252 
             
             for i in range(total_steps):
@@ -211,27 +209,20 @@ if st.button("Run Honest Backtest"):
                 window_start = max(0, curr_pointer - lookback_window)
                 
                 # Slice data strictly up to the current day 'i'
-                # We include 'i' because we are making a decision at Close of day 'i' for the next day
                 history_slice = all_data.iloc[window_start : curr_pointer + 1]  # Remove the +1
                 
-                # --- A. Honest Regime Detection ---
-                # HMM determines the path of states that best fits this specific history
                 X_slice = history_slice[['Log_Returns', 'Volatility']].values * 100
                 
                 try:
                     # Predict sequence
                     hidden_states_slice = hmm_model.predict(X_slice)
-                    # We only care about the LAST state (the state of "Today")
                     current_state_raw = hidden_states_slice[-1]
                     current_state = state_map.get(current_state_raw, current_state_raw)
                 except:
-                    current_state = 1 # Fallback to Neutral if error
+                    current_state = 1
                 
                 honest_regimes.append(current_state)
                 
-                # --- B. Honest Volatility Prediction ---
-                # Prepare single row input for SVR: [Log_Ret, Vol, Down_Vol, Regime]
-                # Note: We use the 'current_state' we just calculated
                 row = test_df.iloc[i]
                 svr_features = np.array([[
                     row['Log_Returns'], 
